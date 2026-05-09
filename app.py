@@ -84,10 +84,6 @@ def init_db():
                 start_time TEXT NOT NULL,
                 end_time TEXT NOT NULL,
                 capacity INTEGER NOT NULL,
-                registration_fee REAL NOT NULL DEFAULT 0,
-                upi_id TEXT,
-                bank_details TEXT,
-                other_payment_method TEXT,
                 status TEXT NOT NULL DEFAULT 'Pending',
                 approval_required INTEGER NOT NULL DEFAULT 0,
                 admin_remarks TEXT,
@@ -101,9 +97,6 @@ def init_db():
                 user_id INTEGER NOT NULL,
                 event_id INTEGER NOT NULL,
                 status TEXT NOT NULL DEFAULT 'Confirmed',
-                payment_method TEXT,
-                payment_reference TEXT,
-                payment_status TEXT NOT NULL DEFAULT 'Not Required',
                 registered_at TEXT DEFAULT CURRENT_TIMESTAMP,
                 UNIQUE(user_id, event_id),
                 FOREIGN KEY (user_id) REFERENCES users(id),
@@ -148,8 +141,6 @@ def init_db():
             );
             """
         )
-        migrate_db(db)
-
         count = db.execute("SELECT COUNT(*) AS total FROM users").fetchone()["total"]
         if count == 0:
             db.execute(
@@ -166,8 +157,8 @@ def init_db():
             )
             db.execute(
                 """
-                INSERT INTO events(title,description,category,venue,event_date,start_time,end_time,capacity,registration_fee,upi_id,bank_details,other_payment_method,status,approval_required,organizer_id)
-                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                INSERT INTO events(title,description,category,venue,event_date,start_time,end_time,capacity,status,approval_required,organizer_id)
+                VALUES(?,?,?,?,?,?,?,?,?,?,?)
                 """,
                 (
                     "TechFest 2026",
@@ -178,10 +169,6 @@ def init_db():
                     "09:00",
                     "17:00",
                     120,
-                    150,
-                    "techfest@upi",
-                    "Account Name: College Tech Club\nBank: Demo Bank\nA/C No: 1234567890\nIFSC: DEMO0001234",
-                    "Cash payment accepted at the event desk before 18 August 2026.",
                     "Approved",
                     0,
                     2,
@@ -196,30 +183,6 @@ def init_db():
                 ("CodeLabs Pvt Ltd", "sponsor@codelabs.test", "9000000000", "Gold", 50000),
             )
             db.execute("INSERT INTO event_sponsors(event_id,sponsor_id) VALUES(?,?)", (1, 1))
-
-
-def migrate_db(db):
-    event_columns = {row["name"] for row in db.execute("PRAGMA table_info(events)").fetchall()}
-    registration_columns = {row["name"] for row in db.execute("PRAGMA table_info(registrations)").fetchall()}
-
-    event_migrations = {
-        "registration_fee": "ALTER TABLE events ADD COLUMN registration_fee REAL NOT NULL DEFAULT 0",
-        "upi_id": "ALTER TABLE events ADD COLUMN upi_id TEXT",
-        "bank_details": "ALTER TABLE events ADD COLUMN bank_details TEXT",
-        "other_payment_method": "ALTER TABLE events ADD COLUMN other_payment_method TEXT",
-    }
-    registration_migrations = {
-        "payment_method": "ALTER TABLE registrations ADD COLUMN payment_method TEXT",
-        "payment_reference": "ALTER TABLE registrations ADD COLUMN payment_reference TEXT",
-        "payment_status": "ALTER TABLE registrations ADD COLUMN payment_status TEXT NOT NULL DEFAULT 'Not Required'",
-    }
-
-    for column, sql in event_migrations.items():
-        if column not in event_columns:
-            db.execute(sql)
-    for column, sql in registration_migrations.items():
-        if column not in registration_columns:
-            db.execute(sql)
 
 
 def esc(value):
@@ -461,7 +424,7 @@ class App(BaseHTTPRequestHandler):
             with get_db() as db:
                 rows = db.execute(
                     """
-                    SELECT r.*, e.title, e.event_date, e.venue, e.registration_fee, t.ticket_code
+                    SELECT r.*, e.title, e.event_date, e.venue, t.ticket_code
                     FROM registrations r
                     JOIN events e ON e.id=r.event_id
                     LEFT JOIN tickets t ON t.registration_id=r.id
@@ -474,9 +437,7 @@ class App(BaseHTTPRequestHandler):
                 f"""<article>
                     <h3>{esc(row['title'])}</h3>
                     <p>{esc(row['event_date'])} at {esc(row['venue'])}</p>
-                    <p><strong>Fee:</strong> Rs. {float(row['registration_fee']):.2f}</p>
                     <p><span class="badge">{esc(row['status'])}</span></p>
-                    <p><strong>Payment:</strong> {esc(row['payment_status'])}</p>
                     {f'<a class="button small" href="/ticket/{row["id"]}">View Ticket</a>' if row["ticket_code"] else ''}
                 </article>"""
                 for row in rows
@@ -521,7 +482,6 @@ class App(BaseHTTPRequestHandler):
                 <div class="between"><h3>{esc(event['title'])}</h3><span class="badge">{esc(event['category'])}</span></div>
                 <p>{esc(event['description'])}</p>
                 <p><strong>{esc(event['event_date'])}</strong> {esc(event['start_time'])}-{esc(event['end_time'])} | {esc(event['venue'])}</p>
-                <p><strong>Registration Fee:</strong> Rs. {float(event['registration_fee']):.2f}</p>
                 <p>{left} of {event['capacity']} seats available</p>
                 <a class="button small" href="/events/{event['id']}">View Details</a>
             </article>
@@ -547,40 +507,17 @@ class App(BaseHTTPRequestHandler):
         left = max(event["capacity"] - registrations, 0)
         schedule_html = "".join(f"<li>{esc(s['start_time'])}-{esc(s['end_time'])}: {esc(s['session_title'])} ({esc(s['venue'])})</li>" for s in schedules) or "<li>No schedule added yet.</li>"
         sponsor_html = "".join(f"<li>{esc(s['name'])} - {esc(s['sponsorship_level'])}</li>" for s in sponsors) or "<li>No sponsors linked yet.</li>"
-        payment_info = f"""
-        <article>
-            <h3>Payment Details</h3>
-            <p><strong>Registration Fee:</strong> Rs. {float(event['registration_fee']):.2f}</p>
-            <ul>
-                <li><strong>UPI:</strong> {esc(event['upi_id']) or 'Not added'}</li>
-                <li><strong>Bank / Passbook:</strong><br>{esc(event['bank_details']).replace(chr(10), '<br>') or 'Not added'}</li>
-                <li><strong>Other Method:</strong> {esc(event['other_payment_method']) or 'Not added'}</li>
-            </ul>
-        </article>
-        """
         action = ""
         if user and user["role"] == "student":
             if existing and existing["status"] != "Cancelled":
                 action = f"""
                 <p>Your registration status: <span class="badge">{esc(existing['status'])}</span></p>
-                <p><strong>Payment:</strong> {esc(existing['payment_status'])}</p>
                 <form method="post" action="/events/cancel"><input type="hidden" name="event_id" value="{event_id}"><button class="danger">Cancel Registration</button></form>
                 """
             elif left > 0:
                 action = f"""
                 <form method="post" action="/events/register">
                     <input type="hidden" name="event_id" value="{event_id}">
-                    <label>Payment Method
-                        <select name="payment_method">
-                            <option value="UPI">UPI</option>
-                            <option value="Bank Transfer">Bank Transfer</option>
-                            <option value="Cash">Cash</option>
-                            <option value="Other">Other</option>
-                        </select>
-                    </label>
-                    <label>Transaction ID / Receipt Note
-                        <input name="payment_reference" placeholder="Example: UPI reference number, bank transaction ID, or cash receipt note">
-                    </label>
                     <button>Apply for Registration</button>
                 </form>
                 """
@@ -600,7 +537,6 @@ class App(BaseHTTPRequestHandler):
         <section class="grid two">
             <article><h3>Schedule</h3><ul>{schedule_html}</ul></article>
             <article><h3>Sponsors</h3><ul>{sponsor_html}</ul></article>
-            {payment_info}
         </section>
         """
         return self.send_html(layout(event["title"], body, user))
@@ -612,7 +548,7 @@ class App(BaseHTTPRequestHandler):
         with get_db() as db:
             rows = db.execute("SELECT * FROM events WHERE organizer_id=? ORDER BY created_at DESC", (user["id"],)).fetchall()
         event_rows = "".join(
-            f"<tr><td>{esc(r['title'])}</td><td>{esc(r['event_date'])}</td><td>{esc(r['venue'])}</td><td>Rs. {float(r['registration_fee']):.2f}</td><td><span class='badge'>{esc(r['status'])}</span></td><td>{esc(r['admin_remarks'])}</td></tr>"
+            f"<tr><td>{esc(r['title'])}</td><td>{esc(r['event_date'])}</td><td>{esc(r['venue'])}</td><td><span class='badge'>{esc(r['status'])}</span></td><td>{esc(r['admin_remarks'])}</td></tr>"
             for r in rows
         )
         body = f"""
@@ -626,20 +562,16 @@ class App(BaseHTTPRequestHandler):
                 <label>Start Time <input name="start_time" type="time" required></label>
                 <label>End Time <input name="end_time" type="time" required></label>
                 <label>Capacity <input name="capacity" type="number" min="1" required></label>
-                <label>Registration Fee <input name="registration_fee" type="number" min="0" step="1" value="0" required></label>
                 <label>Registration Needs Admin Approval
                     <select name="approval_required"><option value="0">No</option><option value="1">Yes</option></select>
                 </label>
-                <label>UPI ID <input name="upi_id" placeholder="example@upi"></label>
-                <label>Other Payment Method <input name="other_payment_method" placeholder="Cash counter, cheque, wallet, etc."></label>
-                <label class="full">Bank / Passbook Details <textarea name="bank_details" placeholder="Account holder name, bank name, account number, IFSC, branch"></textarea></label>
                 <label class="full">Description <textarea name="description" required></textarea></label>
                 <button type="submit">Submit for Approval</button>
             </form>
         </section>
         <section class="panel">
             <h2>My Events</h2>
-            <table><thead><tr><th>Title</th><th>Date</th><th>Venue</th><th>Fee</th><th>Status</th><th>Remarks</th></tr></thead><tbody>{event_rows}</tbody></table>
+            <table><thead><tr><th>Title</th><th>Date</th><th>Venue</th><th>Status</th><th>Remarks</th></tr></thead><tbody>{event_rows}</tbody></table>
         </section>
         """
         return self.send_html(layout("Organizer Events", body, user))
@@ -655,7 +587,7 @@ class App(BaseHTTPRequestHandler):
             table += f"""
             <tr>
                 <td>{esc(r['title'])}<br><small>{esc(r['description'])}</small></td>
-                <td>{esc(r['organizer'])}</td><td>{esc(r['event_date'])}</td><td>{esc(r['capacity'])}</td><td>Rs. {float(r['registration_fee']):.2f}</td>
+                <td>{esc(r['organizer'])}</td><td>{esc(r['event_date'])}</td><td>{esc(r['capacity'])}</td>
                 <td><span class="badge">{esc(r['status'])}</span></td>
                 <td>
                     <form class="inline" method="post" action="/admin/event-status">
@@ -666,7 +598,7 @@ class App(BaseHTTPRequestHandler):
                     </form>
                 </td>
             </tr>"""
-        body = f"<section class='panel'><h2>Admin Event Approvals</h2><table><thead><tr><th>Event</th><th>Organizer</th><th>Date</th><th>Capacity</th><th>Fee</th><th>Status</th><th>Action</th></tr></thead><tbody>{table}</tbody></table></section>"
+        body = f"<section class='panel'><h2>Admin Event Approvals</h2><table><thead><tr><th>Event</th><th>Organizer</th><th>Date</th><th>Capacity</th><th>Status</th><th>Action</th></tr></thead><tbody>{table}</tbody></table></section>"
         return self.send_html(layout("Admin Events", body, user))
 
     def admin_registrations(self):
@@ -676,7 +608,7 @@ class App(BaseHTTPRequestHandler):
         with get_db() as db:
             rows = db.execute(
                 """
-                SELECT r.*, u.name student, u.email, e.title event_title, e.registration_fee
+                SELECT r.*, u.name student, u.email, e.title event_title
                 FROM registrations r JOIN users u ON u.id=r.user_id JOIN events e ON e.id=r.event_id
                 ORDER BY r.registered_at DESC
                 """
@@ -684,7 +616,7 @@ class App(BaseHTTPRequestHandler):
         table = ""
         for r in rows:
             table += f"""
-            <tr><td>{esc(r['student'])}<br><small>{esc(r['email'])}</small></td><td>{esc(r['event_title'])}<br><small>Fee: Rs. {float(r['registration_fee']):.2f}</small></td><td>{esc(r['payment_method'])}<br><small>{esc(r['payment_reference'])}</small><br><span class="badge">{esc(r['payment_status'])}</span></td><td><span class="badge">{esc(r['status'])}</span></td>
+            <tr><td>{esc(r['student'])}<br><small>{esc(r['email'])}</small></td><td>{esc(r['event_title'])}</td><td><span class="badge">{esc(r['status'])}</span></td>
             <td>
                 <form class="inline" method="post" action="/admin/registration-status">
                     <input type="hidden" name="registration_id" value="{r['id']}">
@@ -692,7 +624,7 @@ class App(BaseHTTPRequestHandler):
                     <button class="danger" name="status" value="Rejected">Reject</button>
                 </form>
             </td></tr>"""
-        body = f"<section class='panel'><h2>Registration Approvals</h2><table><thead><tr><th>Student</th><th>Event</th><th>Payment</th><th>Status</th><th>Action</th></tr></thead><tbody>{table}</tbody></table></section>"
+        body = f"<section class='panel'><h2>Registration Approvals</h2><table><thead><tr><th>Student</th><th>Event</th><th>Status</th><th>Action</th></tr></thead><tbody>{table}</tbody></table></section>"
         return self.send_html(layout("Admin Registrations", body, user))
 
     def admin_schedules(self):
@@ -765,7 +697,7 @@ class App(BaseHTTPRequestHandler):
         with get_db() as db:
             row = db.execute(
                 """
-                SELECT r.*, u.name student, u.email, e.title, e.event_date, e.start_time, e.venue, e.registration_fee, t.ticket_code, t.status ticket_status
+                SELECT r.*, u.name student, u.email, e.title, e.event_date, e.start_time, e.venue, t.ticket_code, t.status ticket_status
                 FROM registrations r
                 JOIN users u ON u.id=r.user_id
                 JOIN events e ON e.id=r.event_id
@@ -785,8 +717,6 @@ class App(BaseHTTPRequestHandler):
                 <p><strong>Email:</strong> {esc(row['email'])}</p>
                 <p><strong>Date:</strong> {esc(row['event_date'])} {esc(row['start_time'])}</p>
                 <p><strong>Venue:</strong> {esc(row['venue'])}</p>
-                <p><strong>Fee:</strong> Rs. {float(row['registration_fee']):.2f}</p>
-                <p><strong>Payment:</strong> {esc(row['payment_status'])} ({esc(row['payment_method'])})</p>
                 <p><strong>Ticket Code:</strong> {esc(row['ticket_code'])}</p>
                 <p><span class="badge">{esc(row['ticket_status'])}</span></p>
             </div>
@@ -841,27 +771,17 @@ class App(BaseHTTPRequestHandler):
             taken = db.execute("SELECT COUNT(*) total FROM registrations WHERE event_id=? AND status IN ('Confirmed','Pending')", (event_id,)).fetchone()["total"]
             if taken >= event["capacity"]:
                 return self.redirect(f"/events/{event_id}")
-            payment_method = form_value(data, "payment_method", "Free")
-            payment_reference = form_value(data, "payment_reference")
-            has_fee = float(event["registration_fee"] or 0) > 0
-            payment_status = "Not Required"
-            if has_fee:
-                payment_status = "Payment Submitted" if payment_reference else "Payment Pending"
-            status = "Pending" if event["approval_required"] or has_fee else "Confirmed"
+            status = "Pending" if event["approval_required"] else "Confirmed"
             if existing:
                 db.execute(
-                    """
-                    UPDATE registrations
-                    SET status=?, payment_method=?, payment_reference=?, payment_status=?, registered_at=CURRENT_TIMESTAMP
-                    WHERE id=?
-                    """,
-                    (status, payment_method, payment_reference, payment_status, existing["id"]),
+                    "UPDATE registrations SET status=?, registered_at=CURRENT_TIMESTAMP WHERE id=?",
+                    (status, existing["id"]),
                 )
                 registration_id = existing["id"]
             else:
                 cur = db.execute(
-                    "INSERT INTO registrations(user_id,event_id,status,payment_method,payment_reference,payment_status) VALUES(?,?,?,?,?,?)",
-                    (user["id"], event_id, status, payment_method, payment_reference, payment_status),
+                    "INSERT INTO registrations(user_id,event_id,status) VALUES(?,?,?)",
+                    (user["id"], event_id, status),
                 )
                 registration_id = cur.lastrowid
             if status == "Confirmed":
@@ -877,7 +797,6 @@ class App(BaseHTTPRequestHandler):
             reg = db.execute("SELECT * FROM registrations WHERE user_id=? AND event_id=?", (user["id"], event_id)).fetchone()
             if reg:
                 db.execute("UPDATE registrations SET status='Cancelled' WHERE id=?", (reg["id"],))
-                db.execute("UPDATE registrations SET payment_status='Cancelled' WHERE id=?", (reg["id"],))
                 db.execute("UPDATE tickets SET status='Cancelled' WHERE registration_id=?", (reg["id"],))
         return self.redirect(f"/events/{event_id}")
 
@@ -889,8 +808,8 @@ class App(BaseHTTPRequestHandler):
         with get_db() as db:
             db.execute(
                 """
-                INSERT INTO events(title,description,category,venue,event_date,start_time,end_time,capacity,registration_fee,upi_id,bank_details,other_payment_method,approval_required,organizer_id)
-                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                INSERT INTO events(title,description,category,venue,event_date,start_time,end_time,capacity,approval_required,organizer_id)
+                VALUES(?,?,?,?,?,?,?,?,?,?)
                 """,
                 (
                     form_value(data, "title"),
@@ -901,10 +820,6 @@ class App(BaseHTTPRequestHandler):
                     form_value(data, "start_time"),
                     form_value(data, "end_time"),
                     int(form_value(data, "capacity", "1")),
-                    float(form_value(data, "registration_fee", "0") or 0),
-                    form_value(data, "upi_id"),
-                    form_value(data, "bank_details"),
-                    form_value(data, "other_payment_method"),
                     int(form_value(data, "approval_required", "0")),
                     user["id"],
                 ),
@@ -933,20 +848,8 @@ class App(BaseHTTPRequestHandler):
         with get_db() as db:
             db.execute("UPDATE registrations SET status=? WHERE id=?", (status, reg_id))
             if status == "Confirmed":
-                db.execute(
-                    """
-                    UPDATE registrations
-                    SET payment_status=CASE
-                        WHEN payment_status='Not Required' THEN 'Not Required'
-                        ELSE 'Verified'
-                    END
-                    WHERE id=?
-                    """,
-                    (reg_id,),
-                )
                 self.issue_ticket(db, reg_id)
             elif status == "Rejected":
-                db.execute("UPDATE registrations SET payment_status='Rejected' WHERE id=?", (reg_id,))
                 db.execute("UPDATE tickets SET status='Cancelled' WHERE registration_id=?", (reg_id,))
         return self.redirect("/admin/registrations")
 
