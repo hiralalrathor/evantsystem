@@ -9,12 +9,9 @@ This is a complete college event registration and ticketing system built with Py
 - Admin event approval and rejection
 - Approved event listing
 - Student event registration
-- Student payment method and transaction reference during registration
 - Automatic ticket generation
 - Printable ticket page
 - Admin registration approval for restricted events
-- Admin payment verification from the registration approval screen
-- Organizer fee, UPI, bank/passbook, and other payment receiving method setup
 - Schedule management
 - Sponsor management and event-sponsor linking
 
@@ -71,7 +68,7 @@ college-event-management-system/
 
 1. Login as organizer.
 2. Open Organizer > Manage My Events.
-3. Submit a new event proposal with registration fee, UPI ID, bank/passbook details, and any other payment method.
+3. Submit a new event proposal.
 4. Logout and login as admin.
 5. Open Admin > Event Approvals.
 6. Approve the event.
@@ -79,9 +76,9 @@ college-event-management-system/
 8. Add sponsors and link them from Admin > Sponsors.
 9. Logout and login as student.
 10. Open the student dashboard and click Apply for Registration.
-11. Choose the event, check payment details, select payment method, and enter transaction ID or receipt note.
+11. Choose the event and apply for registration.
 12. Logout and login as admin.
-13. Open Admin > Registration Approvals and approve the registration after checking payment.
+13. Open Admin > Registration Approvals and approve the registration if approval is required.
 14. Login as student again, open the dashboard, and print the generated ticket.
 
 ## Database Tables
@@ -97,5 +94,3 @@ college-event-management-system/
 ## Notes for College Submission
 
 This project uses SQLite so it can run without a separate database server. For a larger production version, SQLite can be replaced with MySQL or PostgreSQL while keeping the same table design.
-
-Payment is recorded for project/demo purposes. The app stores the selected method and transaction/reference number, while the actual money transfer happens outside the app through UPI, bank transfer, cash, or another method entered by the organizer.
