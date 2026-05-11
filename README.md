@@ -6,6 +6,7 @@ This is a complete college event registration and ticketing system built with Py
 
 - Student registration and login
 - Organizer event proposal submission
+- Organizer optional event picture upload or picture URL option
 - Admin event approval and rejection
 - Approved event listing
 - Student event registration
@@ -21,10 +22,12 @@ This is a complete college event registration and ticketing system built with Py
 college-event-management-system/
   app.py
   README.md
+  runtime.txt
   data/
     college_events.db      created automatically when app starts
   static/
     style.css
+    uploads/               uploaded event images are saved here
 ```
 
 ## Requirements
@@ -68,7 +71,7 @@ college-event-management-system/
 
 1. Login as organizer.
 2. Open Organizer > Manage My Events.
-3. Submit a new event proposal.
+3. Submit a new event proposal with an optional event image upload or picture URL.
 4. Logout and login as admin.
 5. Open Admin > Event Approvals.
 6. Approve the event.
@@ -94,3 +97,5 @@ college-event-management-system/
 ## Notes for College Submission
 
 This project uses SQLite so it can run without a separate database server. For a larger production version, SQLite can be replaced with MySQL or PostgreSQL while keeping the same table design.
+
+On Render free, uploaded event images are stored on the service filesystem, so they may disappear after redeploys or restarts. For a real production version, use cloud image storage.
