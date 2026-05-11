@@ -1,10 +1,12 @@
 from http.server import HTTPServer, BaseHTTPRequestHandler
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, urlparse, unquote
 from http.cookies import SimpleCookie
 from pathlib import Path
+import cgi
 import hashlib
 import hmac
 import html
+import mimetypes
 import os
 import secrets
 import sqlite3
@@ -14,7 +16,9 @@ import time
 BASE_DIR = Path(__file__).parent
 DB_PATH = BASE_DIR / "data" / "college_events.db"
 STATIC_DIR = BASE_DIR / "static"
+UPLOAD_DIR = STATIC_DIR / "uploads"
 SECRET = "change-this-secret-for-production"
+ALLOWED_IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".webp"}
 
 
 def get_db():
@@ -60,6 +64,7 @@ def read_session(cookie_header):
 
 def init_db():
     DB_PATH.parent.mkdir(exist_ok=True)
+    UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
     with get_db() as db:
         db.executescript(
             """
@@ -78,6 +83,7 @@ def init_db():
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 title TEXT NOT NULL,
                 description TEXT NOT NULL,
+                image_url TEXT,
                 category TEXT NOT NULL,
                 venue TEXT NOT NULL,
                 event_date TEXT NOT NULL,
@@ -141,6 +147,7 @@ def init_db():
             );
             """
         )
+        migrate_db(db)
         count = db.execute("SELECT COUNT(*) AS total FROM users").fetchone()["total"]
         if count == 0:
             db.execute(
@@ -157,12 +164,13 @@ def init_db():
             )
             db.execute(
                 """
-                INSERT INTO events(title,description,category,venue,event_date,start_time,end_time,capacity,status,approval_required,organizer_id)
-                VALUES(?,?,?,?,?,?,?,?,?,?,?)
+                INSERT INTO events(title,description,image_url,category,venue,event_date,start_time,end_time,capacity,status,approval_required,organizer_id)
+                VALUES(?,?,?,?,?,?,?,?,?,?,?,?)
                 """,
                 (
                     "TechFest 2026",
                     "A college technology festival with coding contests, project demos, and expert talks.",
+                    "https://images.unsplash.com/photo-1540575467063-178a50c2df87?auto=format&fit=crop&w=1200&q=80",
                     "Technical",
                     "Main Auditorium",
                     "2026-08-20",
@@ -183,6 +191,12 @@ def init_db():
                 ("CodeLabs Pvt Ltd", "sponsor@codelabs.test", "9000000000", "Gold", 50000),
             )
             db.execute("INSERT INTO event_sponsors(event_id,sponsor_id) VALUES(?,?)", (1, 1))
+
+
+def migrate_db(db):
+    event_columns = {row["name"] for row in db.execute("PRAGMA table_info(events)").fetchall()}
+    if "image_url" not in event_columns:
+        db.execute("ALTER TABLE events ADD COLUMN image_url TEXT")
 
 
 def esc(value):
@@ -270,9 +284,47 @@ class App(BaseHTTPRequestHandler):
         self.end_headers()
 
     def read_form(self):
+        content_type = self.headers.get("Content-Type", "")
+        if content_type.startswith("multipart/form-data"):
+            form = cgi.FieldStorage(
+                fp=self.rfile,
+                headers=self.headers,
+                environ={
+                    "REQUEST_METHOD": "POST",
+                    "CONTENT_TYPE": content_type,
+                    "CONTENT_LENGTH": self.headers.get("Content-Length", "0"),
+                },
+            )
+            data = {"_files": {}}
+            for key in form.keys():
+                item = form[key]
+                if isinstance(item, list):
+                    item = item[0]
+                if item.filename:
+                    data["_files"][key] = item
+                else:
+                    data[key] = [item.value.strip()]
+            return data
         length = int(self.headers.get("Content-Length", "0"))
         raw = self.rfile.read(length).decode("utf-8")
         return parse_qs(raw)
+
+    def save_uploaded_event_image(self, data):
+        file_item = data.get("_files", {}).get("event_image")
+        if file_item is None or not file_item.filename:
+            return ""
+        suffix = Path(file_item.filename).suffix.lower()
+        if suffix not in ALLOWED_IMAGE_EXTENSIONS:
+            return ""
+        file_name = f"event_{secrets.token_hex(8)}{suffix}"
+        file_path = UPLOAD_DIR / file_name
+        with file_path.open("wb") as target:
+            while True:
+                chunk = file_item.file.read(1024 * 1024)
+                if not chunk:
+                    break
+                target.write(chunk)
+        return f"/static/uploads/{file_name}"
 
     def require_user(self, roles=None):
         user = self.current_user()
@@ -342,13 +394,14 @@ class App(BaseHTTPRequestHandler):
         return self.error_page(404, "Action not found.")
 
     def static_file(self, path):
-        name = path.replace("/static/", "", 1)
+        name = unquote(path.replace("/static/", "", 1))
         file_path = (STATIC_DIR / name).resolve()
         if not str(file_path).startswith(str(STATIC_DIR.resolve())) or not file_path.exists():
             return self.error_page(404, "Static file not found.")
         data = file_path.read_bytes()
+        content_type = mimetypes.guess_type(file_path.name)[0] or "application/octet-stream"
         self.send_response(200)
-        self.send_header("Content-Type", "text/css; charset=utf-8")
+        self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(data)))
         self.end_headers()
         self.wfile.write(data)
@@ -477,8 +530,10 @@ class App(BaseHTTPRequestHandler):
         cards = ""
         for event in events:
             left = max(event["capacity"] - event["registrations"], 0)
+            image = f'<img class="event-thumb" src="{esc(event["image_url"])}" alt="{esc(event["title"])} event picture">' if event["image_url"] else ""
             cards += f"""
             <article>
+                {image}
                 <div class="between"><h3>{esc(event['title'])}</h3><span class="badge">{esc(event['category'])}</span></div>
                 <p>{esc(event['description'])}</p>
                 <p><strong>{esc(event['event_date'])}</strong> {esc(event['start_time'])}-{esc(event['end_time'])} | {esc(event['venue'])}</p>
@@ -507,6 +562,7 @@ class App(BaseHTTPRequestHandler):
         left = max(event["capacity"] - registrations, 0)
         schedule_html = "".join(f"<li>{esc(s['start_time'])}-{esc(s['end_time'])}: {esc(s['session_title'])} ({esc(s['venue'])})</li>" for s in schedules) or "<li>No schedule added yet.</li>"
         sponsor_html = "".join(f"<li>{esc(s['name'])} - {esc(s['sponsorship_level'])}</li>" for s in sponsors) or "<li>No sponsors linked yet.</li>"
+        image = f'<img class="event-hero-image" src="{esc(event["image_url"])}" alt="{esc(event["title"])} event picture">' if event["image_url"] else ""
         action = ""
         if user and user["role"] == "student":
             if existing and existing["status"] != "Cancelled":
@@ -527,6 +583,7 @@ class App(BaseHTTPRequestHandler):
             action = '<a class="button" href="/login">Login to Register</a>'
         body = f"""
         <section class="panel">
+            {image}
             <div class="between"><h2>{esc(event['title'])}</h2><span class="badge">{esc(event['category'])}</span></div>
             <p>{esc(event['description'])}</p>
             <p><strong>Date:</strong> {esc(event['event_date'])} | <strong>Time:</strong> {esc(event['start_time'])}-{esc(event['end_time'])}</p>
@@ -554,10 +611,12 @@ class App(BaseHTTPRequestHandler):
         body = f"""
         <section class="panel">
             <h2>Submit Event Proposal</h2>
-            <form class="wide" method="post" action="/organizer/events">
+            <form class="wide" method="post" action="/organizer/events" enctype="multipart/form-data">
                 <label>Title <input name="title" required></label>
                 <label>Category <input name="category" required></label>
                 <label>Venue <input name="venue" required></label>
+                <label class="full">Event Image Upload Optional <input name="event_image" type="file" accept="image/*"></label>
+                <label class="full">Event Picture URL Optional <input name="image_url" type="url" placeholder="https://example.com/event-photo.jpg"></label>
                 <label>Date <input name="event_date" type="date" required></label>
                 <label>Start Time <input name="start_time" type="time" required></label>
                 <label>End Time <input name="end_time" type="time" required></label>
@@ -586,7 +645,7 @@ class App(BaseHTTPRequestHandler):
         for r in rows:
             table += f"""
             <tr>
-                <td>{esc(r['title'])}<br><small>{esc(r['description'])}</small></td>
+                <td>{esc(r['title'])}<br><small>{esc(r['description'])}</small>{f'<br><small>Picture: {esc(r["image_url"])}</small>' if r["image_url"] else ''}</td>
                 <td>{esc(r['organizer'])}</td><td>{esc(r['event_date'])}</td><td>{esc(r['capacity'])}</td>
                 <td><span class="badge">{esc(r['status'])}</span></td>
                 <td>
@@ -805,15 +864,17 @@ class App(BaseHTTPRequestHandler):
         if not user:
             return
         data = self.read_form()
+        image_url = self.save_uploaded_event_image(data) or form_value(data, "image_url")
         with get_db() as db:
             db.execute(
                 """
-                INSERT INTO events(title,description,category,venue,event_date,start_time,end_time,capacity,approval_required,organizer_id)
-                VALUES(?,?,?,?,?,?,?,?,?,?)
+                INSERT INTO events(title,description,image_url,category,venue,event_date,start_time,end_time,capacity,approval_required,organizer_id)
+                VALUES(?,?,?,?,?,?,?,?,?,?,?)
                 """,
                 (
                     form_value(data, "title"),
                     form_value(data, "description"),
+                    image_url,
                     form_value(data, "category"),
                     form_value(data, "venue"),
                     form_value(data, "event_date"),
