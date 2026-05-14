@@ -5,11 +5,15 @@ This is a complete college event registration and ticketing system built with Py
 ## Features
 
 - Student registration and login
+- Student, organizer, and admin profile editing
 - Organizer event proposal submission
 - Organizer optional event picture upload or picture URL option
+- Organizer-controlled event approval: auto-publish or send to admin
 - Admin event approval and rejection
 - Approved event listing
 - Student event registration
+- Student cancellation within 1 hour of registration
+- Student and organizer help chatbot
 - Automatic ticket generation
 - Printable ticket page
 - Admin registration approval for restricted events
@@ -67,22 +71,54 @@ college-event-management-system/
    password: student123
    ```
 
+## Publish on GitHub
+
+1. Create a new GitHub repository.
+2. Upload or push these files and folders:
+
+   ```text
+   app.py
+   README.md
+   render.yaml
+   requirements.txt
+   runtime.txt
+   static/style.css
+   static/uploads/.gitkeep
+   .gitignore
+   ```
+
+3. Do not upload local SQLite database files from the `data` folder. The app creates the database automatically when it starts.
+
+## Host on Render Free
+
+1. Open https://dashboard.render.com.
+2. Click New + > Web Service.
+3. Connect your GitHub repository.
+4. Use these settings:
+
+   ```text
+   Runtime: Python
+   Build Command: pip install -r requirements.txt
+   Start Command: python app.py
+   Instance Type: Free
+   ```
+
+5. Deploy the service. Render will provide a public URL after deployment.
+
 ## Suggested Demo Flow
 
 1. Login as organizer.
 2. Open Organizer > Manage My Events.
-3. Submit a new event proposal with an optional event image upload or picture URL.
-4. Logout and login as admin.
-5. Open Admin > Event Approvals.
-6. Approve the event.
+3. Submit a new event with an optional event image upload or picture URL.
+4. Choose whether the event needs admin approval. If No, it appears for students immediately.
+5. Logout and login as admin if approval or schedules/sponsors are needed.
+6. Open Admin > Event Approvals and approve pending events.
 7. Add schedule sessions from Admin > Schedules.
 8. Add sponsors and link them from Admin > Sponsors.
 9. Logout and login as student.
 10. Open the student dashboard and click Apply for Registration.
 11. Choose the event and apply for registration.
-12. Logout and login as admin.
-13. Open Admin > Registration Approvals and approve the registration if approval is required.
-14. Login as student again, open the dashboard, and print the generated ticket.
+12. Open the dashboard and print the generated ticket.
 
 ## Database Tables
 
