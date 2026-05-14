@@ -139,6 +139,27 @@ article,
     box-shadow: 0 8px 22px rgba(24, 54, 66, 0.06);
 }
 
+.event-thumb,
+.event-hero-image {
+    display: block;
+    width: 100%;
+    object-fit: cover;
+    background: #e8eef3;
+}
+
+.event-thumb {
+    height: 170px;
+    margin: -20px -20px 16px;
+    width: calc(100% + 40px);
+    border-radius: 8px 8px 0 0;
+}
+
+.event-hero-image {
+    max-height: 360px;
+    margin-bottom: 20px;
+    border-radius: 8px;
+}
+
 .panel {
     margin-bottom: 22px;
 }
@@ -288,6 +309,10 @@ th {
     border: 1px solid #f3d19c;
     border-radius: 8px;
     background: #fff7e8;
+}
+
+.chat-answer {
+    border-left: 4px solid var(--brand);
 }
 
 .muted,
