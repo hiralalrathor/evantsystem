@@ -881,7 +881,7 @@ class App(BaseHTTPRequestHandler):
                     form_value(data, "start_time"),
                     form_value(data, "end_time"),
                     int(form_value(data, "capacity", "1")),
-                    int(form_value(data, "approval_required", "1")),
+                    int(form_value(data, "approval_required", "0")),
                     user["id"],
                 ),
             )
