@@ -11,6 +11,7 @@ import os
 import secrets
 import sqlite3
 import time
+from datetime import datetime, timedelta
 
 
 BASE_DIR = Path(__file__).parent
@@ -69,9 +70,7 @@ def init_db():
         db.executescript(
             """
             CREATE TABLE IF NOT EXISTS users (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                name TEXT NOT NULL,
-                email TEXT NOT NULL UNIQUE,
+                id INTEGER PRIMARY KEY AUTOINCREMENT, ,
                 password_hash TEXT NOT NULL,
                 role TEXT NOT NULL CHECK(role IN ('student','organizer','admin')),
                 department TEXT,
